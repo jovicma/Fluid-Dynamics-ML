@@ -1,0 +1,118 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "riemann-ml"
+version = "0.1.0"
+description = "Riemann problem solvers and machine learning models for 1D fluid dynamics."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "João", email = "joao@example.com" },
+]
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "h5py",
+  "pydantic>=2",
+  "typer[all]",
+  "rich",
+  "tqdm",
+  "pytest",
+  "pytest-cov",
+  "coverage",
+  "pre-commit",
+  "hydra-core",
+  "omegaconf",
+  "tensorboard",
+  "tensorflow>=2.16",
+  "torch>=2.2",
+  "neuraloperator",
+  "torchvision",
+  "torchaudio",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "ruff",
+  "mypy",
+]
+
+[project.urls]
+homepage = "https://example.com/riemann-ml"
+repository = "https://example.com/riemann-ml/repo"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.envs.default]
+dependencies = [
+  "pip",
+]
+features = ["dev"]
+path = ".venv"
+
+[tool.hatch.envs.default.scripts]
+lint = "ruff check src tests"
+format = "ruff format src tests && black src tests"
+typecheck = "mypy src"
+tests = "pytest"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "--strict-markers --disable-warnings --cov=riemann_ml --cov-report=term-missing"
+testpaths = ["tests"]
+filterwarnings = [
+  "error::DeprecationWarning",
+  "ignore::UserWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["riemann_ml"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "\\.pyi?$"
+exclude = """
+/(
+    \\.git
+  | \\.venv
+  | build
+  | dist
+)/
+"""
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = ["data/"]
+select = ["E", "F", "I", "UP", "B", "S", "ANN", "N", "C4"]
+ignore = ["ANN101", "ANN102"]
+
+[tool.ruff.per-file-ignores]
+"tests/**/*" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["riemann_ml"]
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+allow_redefinition = false
+warn_unused_configs = true
