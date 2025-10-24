@@ -1,0 +1,32 @@
+﻿seed: 1234
+
+model:
+  in_channels: 4
+  out_channels: 3
+  n_modes: 16
+  hidden_channels: 64
+  n_layers: 4
+
+data:
+  path: data/processed/sod_like.h5
+  val_fraction: 0.1
+  add_coordinates: true
+  num_workers: 0
+
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0
+  device: cpu
+  log_interval: 1
+  checkpoint_interval: 10
+  eval_interval: 10
+
+logging:
+  log_dir: data/artifacts/fno/logs
+  checkpoint_dir: data/artifacts/fno/checkpoints
+  output_dir: data/artifacts/fno/outputs
+
+evaluation:
+  num_samples: 3
