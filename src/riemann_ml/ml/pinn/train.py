@@ -17,6 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 from riemann_ml.core.euler1d import EPSILON, StatePrim
 from riemann_ml.exact.sod_exact import sod_exact_profile
 from riemann_ml.ml.pinn.model import PINN, conservative_to_primitive
+from riemann_ml.utils.repro import save_config, save_environment, set_global_seeds
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
 app = typer.Typer(help="Train a PINN for the Sod shock-tube problem.")
@@ -26,16 +27,15 @@ def _to_dict(cfg: DictConfig) -> Dict:
     return OmegaConf.to_container(cfg, resolve=True)  # type: ignore[return-value]
 
 
-def _set_seed(seed: int) -> None:
-    np.random.seed(seed)
-    tf.random.set_seed(seed)
-
-
-def _sample_uniform(rng: np.random.Generator, n: int, low: float, high: float) -> np.ndarray:
+def _sample_uniform(
+    rng: np.random.Generator, n: int, low: float, high: float
+) -> np.ndarray:
     return rng.uniform(low=low, high=high, size=(n, 1)).astype(np.float32)
 
 
-def _conservative_profile_from_states(x: np.ndarray, left: StatePrim, right: StatePrim, interface: float, gamma: float) -> np.ndarray:
+def _conservative_profile_from_states(
+    x: np.ndarray, left: StatePrim, right: StatePrim, interface: float, gamma: float
+) -> np.ndarray:
     rho_left = left.density
     rho_right = right.density
     vel_left = left.velocity
@@ -75,8 +75,16 @@ def _build_model(cfg: Dict) -> PINN:
 def _prepare_states(cfg: Dict) -> Tuple[StatePrim, StatePrim]:
     left_cfg = cfg["sod"]["left"]
     right_cfg = cfg["sod"]["right"]
-    left_state = StatePrim(density=left_cfg["density"], velocity=left_cfg["velocity"], pressure=left_cfg["pressure"])
-    right_state = StatePrim(density=right_cfg["density"], velocity=right_cfg["velocity"], pressure=right_cfg["pressure"])
+    left_state = StatePrim(
+        density=left_cfg["density"],
+        velocity=left_cfg["velocity"],
+        pressure=left_cfg["pressure"],
+    )
+    right_state = StatePrim(
+        density=right_cfg["density"],
+        velocity=right_cfg["velocity"],
+        pressure=right_cfg["pressure"],
+    )
     return left_state, right_state
 
 
@@ -85,7 +93,7 @@ def train(config_name: str) -> None:
         cfg: DictConfig = compose(config_name=config_name)
 
     cfg_dict = _to_dict(cfg)
-    _set_seed(cfg_dict["seed"])
+    set_global_seeds(int(cfg_dict["seed"]))
     rng = np.random.default_rng(cfg_dict["seed"])
 
     gamma = cfg_dict["gamma"]
@@ -101,9 +109,13 @@ def train(config_name: str) -> None:
     output_dir = Path(cfg_dict["logging"]["output_dir"])
     for directory in (log_dir, ckpt_dir, output_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    save_config(cfg, output_dir)
+    save_environment(output_dir)
 
     model = _build_model(cfg_dict)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=cfg_dict["training"]["learning_rate"])
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=cfg_dict["training"]["learning_rate"]
+    )
     ckpt = tf.train.Checkpoint(model=model, optimizer=optimizer)
     manager = tf.train.CheckpointManager(ckpt, directory=str(ckpt_dir), max_to_keep=3)
     if manager.latest_checkpoint:
@@ -119,23 +131,33 @@ def train(config_name: str) -> None:
     ckpt_interval = cfg_dict["training"]["checkpoint_interval"]
     eval_interval = cfg_dict["training"]["eval_interval"]
 
-    left_cons = np.array([
-        left_state.density,
-        left_state.density * left_state.velocity,
-        left_state.pressure / (gamma - 1.0) + 0.5 * left_state.density * left_state.velocity**2,
-    ], dtype=np.float32)
-    right_cons = np.array([
-        right_state.density,
-        right_state.density * right_state.velocity,
-        right_state.pressure / (gamma - 1.0) + 0.5 * right_state.density * right_state.velocity**2,
-    ], dtype=np.float32)
+    left_cons = np.array(
+        [
+            left_state.density,
+            left_state.density * left_state.velocity,
+            left_state.pressure / (gamma - 1.0)
+            + 0.5 * left_state.density * left_state.velocity**2,
+        ],
+        dtype=np.float32,
+    )
+    right_cons = np.array(
+        [
+            right_state.density,
+            right_state.density * right_state.velocity,
+            right_state.pressure / (gamma - 1.0)
+            + 0.5 * right_state.density * right_state.velocity**2,
+        ],
+        dtype=np.float32,
+    )
 
     loss_history = []
 
     @tf.function
     def train_step(pde_x, pde_t, ic_x, ic_t, ic_q, bc_x, bc_t, bc_q):
         with tf.GradientTape() as tape:
-            residual = model.compute_residual(pde_x, pde_t, gamma=tf.constant(gamma, dtype=tf.float32))
+            residual = model.compute_residual(
+                pde_x, pde_t, gamma=tf.constant(gamma, dtype=tf.float32)
+            )
             loss_pde = tf.reduce_mean(tf.square(residual))
 
             pred_ic = model.predict_conservative(ic_x, ic_t, training=True)
@@ -158,17 +180,21 @@ def train(config_name: str) -> None:
 
         ic_x_np = _sample_uniform(rng, n_ic, x_min, x_max)
         ic_t_np = np.zeros_like(ic_x_np, dtype=np.float32)
-        ic_q_np = _conservative_profile_from_states(ic_x_np, left_state, right_state, interface, gamma)
+        ic_q_np = _conservative_profile_from_states(
+            ic_x_np, left_state, right_state, interface, gamma
+        )
 
         bc_t_np = _sample_uniform(rng, n_bc, t_min, t_max)
         half = n_bc // 2
         bc_left_x = np.full((half, 1), x_min, dtype=np.float32)
         bc_right_x = np.full((n_bc - half, 1), x_max, dtype=np.float32)
         bc_x_np = np.vstack([bc_left_x, bc_right_x])
-        bc_q_np = np.vstack([
-            np.repeat(left_cons[None, :], half, axis=0),
-            np.repeat(right_cons[None, :], n_bc - half, axis=0),
-        ])
+        bc_q_np = np.vstack(
+            [
+                np.repeat(left_cons[None, :], half, axis=0),
+                np.repeat(right_cons[None, :], n_bc - half, axis=0),
+            ]
+        )
 
         tensors = [
             tf.convert_to_tensor(pde_x),
@@ -232,7 +258,9 @@ def evaluate_and_save(model: PINN, cfg: Dict, output_dir: Path, step: int) -> No
         training=False,
     )
     rho_pred, mom_pred, energy_pred = tf.split(preds, 3, axis=1)
-    rho_pred_np, vel_pred_np, p_pred_np = conservative_to_primitive(rho_pred, mom_pred, energy_pred, gamma)
+    rho_pred_np, vel_pred_np, p_pred_np = conservative_to_primitive(
+        rho_pred, mom_pred, energy_pred, gamma
+    )
 
     rho_pred_np = rho_pred_np.numpy().flatten()
     vel_pred_np = vel_pred_np.numpy().flatten()
@@ -286,7 +314,11 @@ def evaluate_and_save(model: PINN, cfg: Dict, output_dir: Path, step: int) -> No
 
 
 @app.command()
-def main(config: str = typer.Option("pinn", "--config", "-c", help="Configuration name located in configs/.")) -> None:
+def main(
+    config: str = typer.Option(
+        "pinn", "--config", "-c", help="Configuration name located in configs/."
+    )
+) -> None:
     train(config_name=config)
 
 

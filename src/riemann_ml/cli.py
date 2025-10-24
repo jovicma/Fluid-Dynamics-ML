@@ -15,6 +15,7 @@ from riemann_ml.core.euler1d import StatePrim
 from riemann_ml.exact import sod_exact_profile
 from riemann_ml.fvm import solver as fvm_solver
 from riemann_ml.utils.plotting import plot_profiles
+from riemann_ml.utils.repro import save_config, save_environment, set_global_seeds
 
 app = typer.Typer(help="Riemann-ML command-line interface.")
 
@@ -37,7 +38,11 @@ def _state_from_cfg(cfg_section) -> StatePrim:
 
 
 @app.command("show-config")
-def show_config(name: str = typer.Option(DEFAULT_CONFIG, "--name", "-n", help="Configuration name to display.")) -> None:
+def show_config(
+    name: str = typer.Option(
+        DEFAULT_CONFIG, "--name", "-n", help="Configuration name to display."
+    )
+) -> None:
     """Print the resolved Hydra configuration as YAML."""
     cfg = _load_config(name)
     typer.echo(OmegaConf.to_yaml(cfg))
@@ -45,13 +50,22 @@ def show_config(name: str = typer.Option(DEFAULT_CONFIG, "--name", "-n", help="C
 
 @app.command("simulate-fvm")
 def simulate_fvm(
-    config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c", help="Configuration used for the run."),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Optional path to save an NPZ snapshot."),
-    history: bool = typer.Option(False, "--history", help="Store intermediate states according to stride."),
-    history_stride: int = typer.Option(1, "--history-stride", help="Stride for history snapshots.", min=1),
+    config: str = typer.Option(
+        DEFAULT_CONFIG, "--config", "-c", help="Configuration used for the run."
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Optional path to save an NPZ snapshot."
+    ),
+    history: bool = typer.Option(
+        False, "--history", help="Store intermediate states according to stride."
+    ),
+    history_stride: int = typer.Option(
+        1, "--history-stride", help="Stride for history snapshots.", min=1
+    ),
 ) -> None:
     """Run the finite-volume solver with parameters pulled from the config."""
     cfg = _load_config(config)
+    set_global_seeds(int(cfg.seed) if hasattr(cfg, "seed") else 42)
     num_cells = int(cfg.fvm.num_cells)
     final_time = float(cfg.fvm.final_time)
     cfl = float(cfg.fvm.cfl)
@@ -78,6 +92,8 @@ def simulate_fvm(
     if output is not None:
         output = output.resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
+        save_config(cfg, output.parent)
+        save_environment(output.parent)
         data = {
             "times": times,
             "x": x,
@@ -85,7 +101,9 @@ def simulate_fvm(
             "gamma": gamma,
         }
         if history and history_data:
-            data["history_times"] = np.array([entry.time for entry in history_data], dtype=np.float64)
+            data["history_times"] = np.array(
+                [entry.time for entry in history_data], dtype=np.float64
+            )
             data["history_states"] = np.stack([entry.state for entry in history_data])
         np.savez(output, **data)
         typer.echo(f"Saved results to {output}")
@@ -93,13 +111,26 @@ def simulate_fvm(
 
 @app.command("plot-sod")
 def plot_sod(
-    config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c", help="Configuration used for simulation/plots."),
-    output_dir: Path = typer.Option(Path("data/artifacts/cli_sod"), "--output-dir", "-o", help="Directory to store plots."),
+    config: str = typer.Option(
+        DEFAULT_CONFIG,
+        "--config",
+        "-c",
+        help="Configuration used for simulation/plots.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("data/artifacts/cli_sod"),
+        "--output-dir",
+        "-o",
+        help="Directory to store plots.",
+    ),
 ) -> None:
     """Simulate the Sod problem and write FVM vs. exact comparison plots."""
     cfg = _load_config(config)
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    set_global_seeds(int(cfg.seed) if hasattr(cfg, "seed") else 42)
+    save_config(cfg, output_dir)
+    save_environment(output_dir)
 
     left_state = _state_from_cfg(cfg.fvm.left_state)
     right_state = _state_from_cfg(cfg.fvm.right_state)
@@ -119,7 +150,9 @@ def plot_sod(
     momentum = q[:, 1]
     energy = q[:, 2]
     velocity = momentum / np.clip(rho, 1e-12, None)
-    pressure = (float(cfg.fvm.gamma) - 1.0) * np.maximum(energy - 0.5 * momentum**2 / np.clip(rho, 1e-12, None), 1e-12)
+    pressure = (float(cfg.fvm.gamma) - 1.0) * np.maximum(
+        energy - 0.5 * momentum**2 / np.clip(rho, 1e-12, None), 1e-12
+    )
 
     fvm_plot = output_dir / "fvm_profiles.png"
     plot_profiles(

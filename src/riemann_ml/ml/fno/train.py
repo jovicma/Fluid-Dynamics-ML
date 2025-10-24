@@ -18,6 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from riemann_ml.ml.fno.dataset import RiemannH5Dataset, _read_metadata
 from riemann_ml.ml.fno.model import FNO1DModel
+from riemann_ml.utils.repro import save_config, save_environment, set_global_seeds
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
 
@@ -26,27 +27,27 @@ def _to_dict(cfg: DictConfig) -> Dict:
     return OmegaConf.to_container(cfg, resolve=True)  # type: ignore[return-value]
 
 
-def _set_seed(seed: int) -> None:
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
-def _relative_l2(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def _relative_l2(
+    pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8
+) -> torch.Tensor:
     diff = pred - target
     numerator = torch.linalg.vector_norm(diff.reshape(diff.shape[0], -1), dim=1)
     denominator = torch.linalg.vector_norm(target.reshape(target.shape[0], -1), dim=1)
     return torch.mean(numerator / (denominator + eps))
 
 
-def _prepare_dataloaders(cfg: Dict, metadata) -> Tuple[DataLoader, DataLoader, np.ndarray, Path]:
+def _prepare_dataloaders(
+    cfg: Dict, metadata
+) -> Tuple[DataLoader, DataLoader, np.ndarray, Path]:
     data_cfg = cfg["data"]
     path = Path(data_cfg["path"])
     val_fraction = float(data_cfg.get("val_fraction", 0.1))
     batch_size = int(cfg["training"]["batch_size"])
     num_workers = int(data_cfg.get("num_workers", 0))
 
-    base_dataset = RiemannH5Dataset(path, add_coordinates=data_cfg.get("add_coordinates", True))
+    base_dataset = RiemannH5Dataset(
+        path, add_coordinates=data_cfg.get("add_coordinates", True)
+    )
     all_indices = np.arange(len(base_dataset))
     rng = np.random.default_rng(cfg["seed"])
     rng.shuffle(all_indices)
@@ -54,10 +55,18 @@ def _prepare_dataloaders(cfg: Dict, metadata) -> Tuple[DataLoader, DataLoader, n
     val_indices = all_indices[:val_size]
     train_indices = all_indices[val_size:]
     if len(train_indices) == 0:
-        raise RuntimeError("Validation fraction too large; no training samples remaining.")
+        raise RuntimeError(
+            "Validation fraction too large; no training samples remaining."
+        )
 
-    train_dataset = RiemannH5Dataset(path, indices=train_indices, add_coordinates=data_cfg.get("add_coordinates", True))
-    val_dataset = RiemannH5Dataset(path, indices=val_indices, add_coordinates=data_cfg.get("add_coordinates", True))
+    train_dataset = RiemannH5Dataset(
+        path,
+        indices=train_indices,
+        add_coordinates=data_cfg.get("add_coordinates", True),
+    )
+    val_dataset = RiemannH5Dataset(
+        path, indices=val_indices, add_coordinates=data_cfg.get("add_coordinates", True)
+    )
 
     train_loader = DataLoader(
         train_dataset,
@@ -83,7 +92,9 @@ def _ensure_dirs(cfg: Dict) -> Tuple[Path, Path, Path]:
     return log_dir, ckpt_dir, output_dir
 
 
-def evaluate(model: torch.nn.Module, data_loader: DataLoader, device: torch.device) -> float:
+def evaluate(
+    model: torch.nn.Module, data_loader: DataLoader, device: torch.device
+) -> float:
     model.eval()
     losses = []
     with torch.no_grad():
@@ -98,7 +109,9 @@ def evaluate(model: torch.nn.Module, data_loader: DataLoader, device: torch.devi
     return float(np.mean(losses))
 
 
-def _save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, epoch: int, path: Path) -> None:
+def _save_checkpoint(
+    model: torch.nn.Module, optimizer: torch.optim.Optimizer, epoch: int, path: Path
+) -> None:
     torch.save(
         {
             "epoch": epoch,
@@ -159,13 +172,21 @@ def train(config_name: str) -> None:
         cfg: DictConfig = compose(config_name=config_name)
 
     cfg_dict = _to_dict(cfg)
-    _set_seed(cfg_dict["seed"])
+    set_global_seeds(int(cfg_dict["seed"]))
 
     metadata = _read_metadata(Path(cfg_dict["data"]["path"]))
-    train_loader, val_loader, val_indices, dataset_path = _prepare_dataloaders(cfg_dict, metadata)
+    train_loader, val_loader, val_indices, dataset_path = _prepare_dataloaders(
+        cfg_dict, metadata
+    )
     log_dir, ckpt_dir, output_dir = _ensure_dirs(cfg_dict)
+    save_config(cfg, output_dir)
+    save_environment(output_dir)
 
-    device = torch.device(cfg_dict["training"].get("device", "cuda" if torch.cuda.is_available() else "cpu"))
+    device = torch.device(
+        cfg_dict["training"].get(
+            "device", "cuda" if torch.cuda.is_available() else "cpu"
+        )
+    )
 
     model = FNO1DModel(cfg_dict["model"]).to(device)
     optimizer = torch.optim.Adam(
@@ -181,7 +202,9 @@ def train(config_name: str) -> None:
     eval_interval = int(cfg_dict["training"].get("eval_interval", 5))
 
     loss_history = []
-    train_dataset_full = RiemannH5Dataset(dataset_path, add_coordinates=cfg_dict["data"].get("add_coordinates", True))
+    train_dataset_full = RiemannH5Dataset(
+        dataset_path, add_coordinates=cfg_dict["data"].get("add_coordinates", True)
+    )
 
     start_time = time.time()
     for epoch in range(1, epochs + 1):
@@ -219,15 +242,25 @@ def train(config_name: str) -> None:
 
         if epoch % eval_interval == 0 or epoch == epochs:
             num_samples = int(cfg_dict["evaluation"].get("num_samples", 3))
-            chosen_indices = val_indices[: num_samples]
-            _plot_samples(model, train_dataset_full, chosen_indices, metadata, device, output_dir, epoch)
+            chosen_indices = val_indices[:num_samples]
+            _plot_samples(
+                model,
+                train_dataset_full,
+                chosen_indices,
+                metadata,
+                device,
+                output_dir,
+                epoch,
+            )
             metrics = {
                 "epoch": epoch,
                 "train_loss": train_loss,
                 "val_loss": val_loss,
                 "num_parameters": model.num_parameters(),
             }
-            with (output_dir / f"metrics_epoch_{epoch}.json").open("w", encoding="utf-8") as fout:
+            with (output_dir / f"metrics_epoch_{epoch}.json").open(
+                "w", encoding="utf-8"
+            ) as fout:
                 json.dump(metrics, fout, indent=2)
 
     writer.close()

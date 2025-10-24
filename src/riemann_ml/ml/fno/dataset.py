@@ -62,7 +62,9 @@ class RiemannH5Dataset(Dataset):
     def __len__(self) -> int:
         return int(self.indices.size)
 
-    def _initial_state(self, rho_left: float, p_left: float, rho_right: float, p_right: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _initial_state(
+        self, rho_left: float, p_left: float, rho_right: float, p_right: float
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         mask = self.metadata.x <= self.metadata.interface_position
         rho_init = np.where(mask, rho_left, rho_right).astype(np.float32)
         vel_init = np.zeros_like(rho_init, dtype=np.float32)
@@ -82,7 +84,9 @@ class RiemannH5Dataset(Dataset):
             rho_right = float(ic_group["rho_right"][idx])
             p_right = float(ic_group["p_right"][idx])
 
-        rho_init, vel_init, p_init = self._initial_state(rho_left, p_left, rho_right, p_right)
+        rho_init, vel_init, p_init = self._initial_state(
+            rho_left, p_left, rho_right, p_right
+        )
 
         inputs = [rho_init, vel_init, p_init]
         if self.add_coordinates:

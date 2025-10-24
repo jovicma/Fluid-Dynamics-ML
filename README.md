@@ -11,6 +11,34 @@
 
 Riemann-ML é uma plataforma educacional para explorar a dinâmica de fluidos 1D com foco no problema de Riemann. O projeto integra métodos numéricos clássicos (FVM e soluidores exatos) e modelos de aprendizado de máquina (PINNs e operadores neurais) para geração, modelagem e avaliação de soluções.
 
+## Arquitetura em alto nível
+
+```
+┌───────────────────────────────┐      ┌─────────────────────────────────┐
+│ Entrada de Configuração (CLI) │──────▶     Pipelines (Make/CLI)       │
+└───────────────────────────────┘      └──────────────┬──────────────────┘
+                                                      │
+            ┌─────────────┬─────────────┬─────────────┴─────────────┬──────────────┐
+            │             │             │                           │              │
+            ▼             ▼             ▼                           ▼              ▼
+┌────────────────┐ ┌──────────────┐ ┌──────────────┐      ┌──────────────────┐ ┌───────────────┐
+│ Core (Euler)   │ │ FVM Solver   │ │ Exact Solver │      │ PINN (TensorFlow) │ │ FNO (PyTorch) │
+└────────▲───────┘ └──────▲───────┘ └──────▲───────┘      └──────────▲───────┘ └───────────────┘
+         │                │                │                         │
+         │                │                │                         │
+         └────────────┬───┴──────┬─────────┴────────────┬────────────┘
+                      ▼          ▼                      ▼
+             ┌────────────────────────┐        ┌────────────────────────┐
+             │ Geração de dados (HDF5)│        │ Avaliação (metricas +  │
+             │ + notebooks exploratórios │      │ visualizações)         │
+             └───────────────┬─────────┘        └─────────────┬────────┘
+                             ▼                               ▼
+                  ┌───────────────────────┐       ┌────────────────────────┐
+                  │ Artefatos (plots,    │       │ Relatórios / Notebook  │
+                  │ checkpoints, métricas)│      │ final (pipeline_run)   │
+                  └───────────────────────┘       └────────────────────────┘
+```
+
 ## Requisitos
 
 - Python 3.11 ou superior
@@ -93,6 +121,33 @@ data/
 2. Treine os modelos PINN/FNO com as configurações definidas em `src/riemann_ml/configs`.
 3. Avalie as previsões com as métricas reunidas em `src/riemann_ml/eval`.
 4. Use a CLI `riemann-ml` (ou `python -m riemann_ml.cli`) para orquestrar experimentos reprodutíveis.
+
+## Contexto físico e modelo
+
+- **Equações de Euler 1D:** conjunto hiperbólico que modela conservação de massa, quantidade de movimento e energia em um gás ideal. As variáveis conservativas \((\rho, \rho u, E)\) evoluem segundo \( \partial_t q + \partial_x f(q) = 0 \).
+- **Problemas de Riemann:** condições iniciais por partes (descontinuidade em \(x_0\)) que produzem ondas de choque, rarefações e contatos.
+- **Caso clássico de Sod:** problema introduzido por Gary A. Sod [[Sod, 1978](https://doi.org/10.1016/0021-9991(78)90023-2)], com estados \( (\rho_L,u_L,p_L)=(1.0,0.0,1.0) \) e \( (\rho_R,u_R,p_R)=(0.125,0.0,0.1) \). Serve de teste de convergência para esquemas numéricos.
+- **PINN vs FNO:** PINN resolve a PDE diretamente impondo os resíduos via `tf.GradientTape`, útil quando dados são escassos, mas pode exigir tuning pesado. FNO aprende um operador mapeando condições iniciais para o estado final, escalando bem em conjuntos grandes (porém dependente de dados de treino).
+
+## Reproduzindo os experimentos
+
+1. **FVM Sod** – `make fvm-sod`: executa o solver Rusanov e grava os perfis em `data/artifacts/cli_sod`.
+2. **Gerar dataset** – `scripts/gen_dataset.sh` (ou `NUM_SAMPLES=2000 ...`): produz HDF5 com soluções para diversas ICs.
+3. **Treinar PINN** – `make train-pinn`: usa configuração `pinn.yaml` (TensorFlow).
+4. **Treinar FNO** – `make train-fno`: consome dataset HDF5 (PyTorch/neuraloperator).
+5. **Avaliar** – `make eval` (ou `scripts/eval_all.sh`): gera métricas/figuras em `data/artifacts/eval`.
+
+Para uma validação rápida, utilize `scripts/sanity_quick.sh`, que encadeia versões curtas de cada etapa.
+
+## Resultados esperados
+
+Preencha a tabela após rodar `make eval` com os artefatos produzidos:
+
+| Modelo | relative_l2_ρ | relative_l2_u | relative_l2_p | Erro choque (Δx) | Erro contato |
+|--------|---------------|---------------|---------------|------------------|--------------|
+| FVM    | *(preencher)* | *(preencher)* | *(preencher)* | *(preencher)*     | *(preencher)*|
+| PINN   | *(preencher)* | *(preencher)* | *(preencher)* | *(preencher)*     | *(preencher)*|
+| FNO    | *(preencher)* | *(preencher)* | *(preencher)* | *(preencher)*     | *(preencher)*|
 
 ## Docker
 

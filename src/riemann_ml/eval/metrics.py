@@ -7,7 +7,9 @@ from typing import Sequence
 import numpy as np
 
 
-def relative_l2(pred: Sequence[float], target: Sequence[float], eps: float = 1e-12) -> float:
+def relative_l2(
+    pred: Sequence[float], target: Sequence[float], eps: float = 1e-12
+) -> float:
     """Compute relative L2 error between prediction and target."""
     pred_arr = np.asarray(pred, dtype=np.float64)
     target_arr = np.asarray(target, dtype=np.float64)
@@ -16,7 +18,9 @@ def relative_l2(pred: Sequence[float], target: Sequence[float], eps: float = 1e-
     return float(num / (denom + eps))
 
 
-def _feature_location(x: np.ndarray, values: np.ndarray, ignore_index: int | None = None) -> float:
+def _feature_location(
+    x: np.ndarray, values: np.ndarray, ignore_index: int | None = None
+) -> float:
     grad = np.abs(np.gradient(values, x))
     if ignore_index is not None:
         grad = grad.copy()

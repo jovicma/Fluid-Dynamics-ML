@@ -39,9 +39,7 @@ def _wave_function(p: float, state: StatePrim, gamma: float) -> float:
         return (p - p_i) * sqrt_term
 
     exponent = (gamma - 1.0) / (2.0 * gamma)
-    return (2.0 * c_i / (gamma - 1.0)) * (
-        (p / p_i) ** exponent - 1.0
-    )
+    return (2.0 * c_i / (gamma - 1.0)) * ((p / p_i) ** exponent - 1.0)
 
 
 def _wave_function_derivative(p: float, state: StatePrim, gamma: float) -> float:
@@ -65,7 +63,6 @@ def _initial_pressure_guess(left: StatePrim, right: StatePrim, gamma: float) -> 
     c_r = _sound_speed(right, gamma)
     p_avg = 0.5 * (left.pressure + right.pressure)
     u_diff = right.velocity - left.velocity
-    g = (gamma - 1.0) / (2.0 * gamma)
     p_pv = p_avg - 0.125 * u_diff * (left.density + right.density) * (c_l + c_r)
     return max(p_pv, EPSILON)
 
@@ -78,9 +75,8 @@ def _solve_pressure_star(left: StatePrim, right: StatePrim, gamma: float) -> flo
             + _wave_function(p, right, gamma)
             + (right.velocity - left.velocity)
         )
-        df = (
-            _wave_function_derivative(p, left, gamma)
-            + _wave_function_derivative(p, right, gamma)
+        df = _wave_function_derivative(p, left, gamma) + _wave_function_derivative(
+            p, right, gamma
         )
         dp = -f / df
         p = max(p + dp, EPSILON)
@@ -141,18 +137,13 @@ def _sample_left(
     p[mask_left_state] = p_l
 
     if np.any(mask_fan):
-        term = (2.0 / (gamma + 1.0)) + (
-            (gamma - 1.0) / ((gamma + 1.0) * c_l)
-        ) * (u_l - xi[mask_fan])
+        term = (2.0 / (gamma + 1.0)) + ((gamma - 1.0) / ((gamma + 1.0) * c_l)) * (
+            u_l - xi[mask_fan]
+        )
         term = np.maximum(term, EPSILON)
         rho[mask_fan] = rho_l * term ** (2.0 / (gamma - 1.0))
-        u[mask_fan] = (
-            (2.0 / (gamma + 1.0))
-            * (
-                c_l
-                + 0.5 * (gamma - 1.0) * u_l
-                + xi[mask_fan]
-            )
+        u[mask_fan] = (2.0 / (gamma + 1.0)) * (
+            c_l + 0.5 * (gamma - 1.0) * u_l + xi[mask_fan]
         )
         p[mask_fan] = p_l * term ** (2.0 * gamma / (gamma - 1.0))
 
@@ -205,18 +196,13 @@ def _sample_right(
     p[mask_right_state] = p_r
 
     if np.any(mask_fan):
-        term = (2.0 / (gamma + 1.0)) - (
-            (gamma - 1.0) / ((gamma + 1.0) * c_r)
-        ) * (u_r - xi[mask_fan])
+        term = (2.0 / (gamma + 1.0)) - ((gamma - 1.0) / ((gamma + 1.0) * c_r)) * (
+            u_r - xi[mask_fan]
+        )
         term = np.maximum(term, EPSILON)
         rho[mask_fan] = rho_r * term ** (2.0 / (gamma - 1.0))
-        u[mask_fan] = (
-            (2.0 / (gamma + 1.0))
-            * (
-                -c_r
-                + 0.5 * (gamma - 1.0) * u_r
-                + xi[mask_fan]
-            )
+        u[mask_fan] = (2.0 / (gamma + 1.0)) * (
+            -c_r + 0.5 * (gamma - 1.0) * u_r + xi[mask_fan]
         )
         p[mask_fan] = p_r * term ** (2.0 * gamma / (gamma - 1.0))
 

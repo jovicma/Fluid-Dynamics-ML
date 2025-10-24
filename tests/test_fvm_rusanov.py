@@ -28,7 +28,9 @@ def test_advance_one_step_cfl_and_finiteness():
     state = np.zeros((num_cells, 3), dtype=np.float64)
     mask = x <= interface
     state[mask] = np.array([left_cons.density, left_cons.momentum, left_cons.energy])
-    state[~mask] = np.array([right_cons.density, right_cons.momentum, right_cons.energy])
+    state[~mask] = np.array(
+        [right_cons.density, right_cons.momentum, right_cons.energy]
+    )
 
     cfl = 0.5
     next_state, dt, max_speed = advance_one_step(state, dx, cfl)

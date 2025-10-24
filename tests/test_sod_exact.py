@@ -33,6 +33,8 @@ def test_wave_structure_is_monotone(sod_states: tuple[StatePrim, StatePrim]):
 
     shock_front_idx = np.argmax(np.abs(np.gradient(rho)))
     contact_idx = np.argmax(np.gradient(u))
-    assert shock_front_idx > contact_idx, "Shock should appear to the right of the contact."
+    assert (
+        shock_front_idx > contact_idx
+    ), "Shock should appear to the right of the contact."
     rarefaction_width = np.sum(np.abs(np.gradient(p)) < 1e-2)
     assert rarefaction_width > 0

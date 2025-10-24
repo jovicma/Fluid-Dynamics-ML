@@ -9,11 +9,13 @@ from typing import Iterable, Mapping, Optional, Sequence
 import h5py
 import numpy as np
 import typer
+from omegaconf import OmegaConf
 from scipy.stats import qmc
 from tqdm.auto import tqdm
 
 from riemann_ml.core.euler1d import EPSILON, StatePrim
 from riemann_ml.fvm import solver as fvm_solver
+from riemann_ml.utils.repro import save_config, save_environment, set_global_seeds
 
 __all__ = ["RiemannInitialCondition", "sample_riemann_ic", "solve_and_store"]
 
@@ -31,12 +33,18 @@ class RiemannInitialCondition:
 
     def to_states(self) -> tuple[StatePrim, StatePrim]:
         """Convert to left/right primitive states."""
-        left = StatePrim(density=self.rho_left, velocity=self.u_left, pressure=self.p_left)
-        right = StatePrim(density=self.rho_right, velocity=self.u_right, pressure=self.p_right)
+        left = StatePrim(
+            density=self.rho_left, velocity=self.u_left, pressure=self.p_left
+        )
+        right = StatePrim(
+            density=self.rho_right, velocity=self.u_right, pressure=self.p_right
+        )
         return left, right
 
 
-def _ensure_condition(ic: RiemannInitialCondition | Mapping[str, float]) -> RiemannInitialCondition:
+def _ensure_condition(
+    ic: RiemannInitialCondition | Mapping[str, float]
+) -> RiemannInitialCondition:
     if isinstance(ic, RiemannInitialCondition):
         return ic
     if isinstance(ic, Mapping):
@@ -94,12 +102,16 @@ def sample_riemann_ic(
     return ic_list
 
 
-def _conservative_to_primitive(q: np.ndarray, gamma: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _conservative_to_primitive(
+    q: np.ndarray, gamma: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     rho = np.clip(q[:, 0], EPSILON, None)
     momentum = q[:, 1]
     energy = np.clip(q[:, 2], EPSILON, None)
     velocity = momentum / np.clip(rho, EPSILON, None)
-    pressure = (gamma - 1.0) * np.maximum(energy - 0.5 * momentum**2 / np.clip(rho, EPSILON, None), EPSILON)
+    pressure = (gamma - 1.0) * np.maximum(
+        energy - 0.5 * momentum**2 / np.clip(rho, EPSILON, None), EPSILON
+    )
     return rho, velocity, pressure
 
 
@@ -138,7 +150,9 @@ def solve_and_store(
 
     x_reference: Optional[np.ndarray] = None
 
-    iterator: Iterable[tuple[int, RiemannInitialCondition | Mapping[str, float]]] = enumerate(ic_batch)
+    iterator: Iterable[tuple[int, RiemannInitialCondition | Mapping[str, float]]] = (
+        enumerate(ic_batch)
+    )
     if show_progress:
         iterator = enumerate(tqdm(ic_batch, desc="Generating dataset"))
 
@@ -171,7 +185,9 @@ def solve_and_store(
             x_reference = x.astype(np.float32)
             if x_grid is not None:
                 x_grid_arr = np.asarray(x_grid, dtype=np.float32)
-                if x_grid_arr.shape != x_reference.shape or not np.allclose(x_grid_arr, x_reference):
+                if x_grid_arr.shape != x_reference.shape or not np.allclose(
+                    x_grid_arr, x_reference
+                ):
                     raise ValueError("Provided x_grid does not match solver grid.")
         else:
             if not np.allclose(x_reference, x):
@@ -204,7 +220,9 @@ def solve_and_store(
 
 def main(
     num_samples: int = typer.Option(2000, help="Number of Riemann problems to sample."),
-    out_path: Path = typer.Option(Path("data/processed/sod_like.h5"), help="Output dataset path."),
+    out_path: Path = typer.Option(
+        Path("data/processed/sod_like.h5"), help="Output dataset path."
+    ),
     cells: int = typer.Option(512, help="Number of spatial cells."),
     cfl: float = typer.Option(0.5, help="CFL number."),
     final_time: float = typer.Option(0.2, help="Final simulation time."),
@@ -226,6 +244,7 @@ def main(
         "rho_right": (rho_right_min, rho_right_max),
         "p_right": (p_right_min, p_right_max),
     }
+    set_global_seeds(seed or 0)
     samples = sample_riemann_ic(num_samples, ranges, seed=seed, method="lhs")
     solve_and_store(
         ic_batch=samples,
@@ -236,6 +255,21 @@ def main(
         gamma=gamma,
         show_progress=True,
     )
+    output_dir = Path(out_path).resolve().parent
+    save_environment(output_dir)
+    cfg = OmegaConf.create(
+        {
+            "num_samples": num_samples,
+            "cells": cells,
+            "cfl": cfl,
+            "final_time": final_time,
+            "gamma": gamma,
+            "ranges": ranges,
+            "seed": seed,
+            "dataset_path": str(out_path),
+        }
+    )
+    save_config(cfg, output_dir)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Tuple
 
 import tensorflow as tf
 
@@ -13,7 +13,9 @@ def _ensure_float32(tensor: tf.Tensor) -> tf.Tensor:
     return tf.cast(tensor, tf.float32)
 
 
-def conservative_to_primitive(rho: tf.Tensor, momentum: tf.Tensor, energy: tf.Tensor, gamma: float) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+def conservative_to_primitive(
+    rho: tf.Tensor, momentum: tf.Tensor, energy: tf.Tensor, gamma: float
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     """Convert conservative variables to primitive ones in TensorFlow."""
     rho = tf.maximum(rho, TF_EPS)
     velocity = momentum / tf.maximum(rho, TF_EPS)
@@ -22,7 +24,9 @@ def conservative_to_primitive(rho: tf.Tensor, momentum: tf.Tensor, energy: tf.Te
     return rho, velocity, pressure
 
 
-def compute_flux(rho: tf.Tensor, momentum: tf.Tensor, energy: tf.Tensor, gamma: float) -> tf.Tensor:
+def compute_flux(
+    rho: tf.Tensor, momentum: tf.Tensor, energy: tf.Tensor, gamma: float
+) -> tf.Tensor:
     """Compute Euler flux vector F(U) in TensorFlow."""
     rho = tf.maximum(rho, TF_EPS)
     velocity = momentum / rho
@@ -35,7 +39,9 @@ def compute_flux(rho: tf.Tensor, momentum: tf.Tensor, energy: tf.Tensor, gamma: 
     return tf.concat([flux_mass, flux_momentum, flux_energy], axis=1)
 
 
-def _grad_components(tape: tf.GradientTape, tensor: tf.Tensor, var: tf.Tensor) -> tf.Tensor:
+def _grad_components(
+    tape: tf.GradientTape, tensor: tf.Tensor, var: tf.Tensor
+) -> tf.Tensor:
     """Compute gradients of each component of `tensor` with respect to `var`."""
     grads = []
     for i in range(tensor.shape[1]):
@@ -77,7 +83,9 @@ class PINN(tf.keras.Model):
             x = layer(x, training=training)
         return self._output_layer(x, training=training)
 
-    def predict_conservative(self, x: tf.Tensor, t: tf.Tensor, training: bool = False) -> tf.Tensor:
+    def predict_conservative(
+        self, x: tf.Tensor, t: tf.Tensor, training: bool = False
+    ) -> tf.Tensor:
         inputs = tf.concat([_ensure_float32(x), _ensure_float32(t)], axis=1)
         return self(inputs, training=training)
 

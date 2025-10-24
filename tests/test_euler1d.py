@@ -7,7 +7,6 @@ import math
 import pytest
 
 from riemann_ml.core.euler1d import (
-    StateCons,
     StatePrim,
     cons_to_prim,
     flux_vector,

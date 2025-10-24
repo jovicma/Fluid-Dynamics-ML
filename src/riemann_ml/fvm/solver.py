@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from riemann_ml.core.euler1d import EPSILON, StateCons, StatePrim, prim_to_cons
 
 __all__ = [
+    "SimulationHistoryEntry",
     "initialize_grid",
     "riemann_flux_rusanov",
     "advance_one_step",
     "simulate",
+    "extend_state",
+    "max_wave_speed",
 ]
 
 
@@ -25,7 +28,9 @@ class SimulationHistoryEntry:
     state: np.ndarray
 
 
-def initialize_grid(num_cells: int, domain: Tuple[float, float] = (0.0, 1.0)) -> Tuple[np.ndarray, float]:
+def initialize_grid(
+    num_cells: int, domain: Tuple[float, float] = (0.0, 1.0)
+) -> Tuple[np.ndarray, float]:
     """Create a uniform 1-D Cartesian grid.
 
     Parameters
@@ -50,7 +55,9 @@ def initialize_grid(num_cells: int, domain: Tuple[float, float] = (0.0, 1.0)) ->
     return centers, dx
 
 
-def _as_conservative_array(state: StateCons | Sequence[float] | np.ndarray) -> np.ndarray:
+def _as_conservative_array(
+    state: StateCons | Sequence[float] | np.ndarray,
+) -> np.ndarray:
     if isinstance(state, StateCons):
         return np.array([state.density, state.momentum, state.energy], dtype=np.float64)
     array = np.asarray(state, dtype=np.float64)
@@ -59,7 +66,9 @@ def _as_conservative_array(state: StateCons | Sequence[float] | np.ndarray) -> n
     return array
 
 
-def _primitive_variables(cons_state: np.ndarray, gamma: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _primitive_variables(
+    cons_state: np.ndarray, gamma: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     arr = np.asarray(cons_state, dtype=np.float64)
     if arr.ndim == 1:
         arr = arr[None, :]
@@ -111,28 +120,39 @@ def riemann_flux_rusanov(
     c_l = np.sqrt(gamma * p_l / rho_l)
     c_r = np.sqrt(gamma * p_r / rho_r)
     spectral_radius = np.maximum(np.abs(vel_l) + c_l, np.abs(vel_r) + c_r)
-    flux = 0.5 * (flux_left + flux_right) - 0.5 * spectral_radius[:, None] * (right_arr - left_arr)
+    flux = 0.5 * (flux_left + flux_right) - 0.5 * spectral_radius[:, None] * (
+        right_arr - left_arr
+    )
 
     if original_shape is not None:
         return flux[0]
     return flux
 
 
-def _extend_with_outflow_bc(cons_state: np.ndarray) -> np.ndarray:
-    left = cons_state[0][None, :]
-    right = cons_state[-1][None, :]
-    return np.vstack((left, cons_state, right))
+def extend_state(cons_state: np.ndarray, boundary: str = "outflow") -> np.ndarray:
+    boundary = boundary.lower()
+    if boundary == "outflow":
+        left = cons_state[0][None, :]
+        right = cons_state[-1][None, :]
+        return np.vstack((left, cons_state, right))
+    if boundary == "periodic":
+        return np.vstack((cons_state[-1][None, :], cons_state, cons_state[0][None, :]))
+    raise ValueError(
+        f"Unsupported boundary condition '{boundary}'. Use 'outflow' or 'periodic'."
+    )
 
 
-def _max_characteristic_speed(cons_state: np.ndarray, gamma: float) -> float:
+def max_wave_speed(cons_state: np.ndarray, gamma: float) -> float:
     rho, vel, pressure, _ = _primitive_variables(cons_state, gamma)
     sound_speed = np.sqrt(gamma * pressure / rho)
     return float(np.max(np.abs(vel) + sound_speed))
 
 
-def _update_state(cons_state: np.ndarray, dx: float, dt: float, gamma: float) -> np.ndarray:
+def _update_state(
+    cons_state: np.ndarray, dx: float, dt: float, gamma: float, boundary: str
+) -> np.ndarray:
     cons_state = np.asarray(cons_state, dtype=np.float64)
-    q_ext = _extend_with_outflow_bc(cons_state)
+    q_ext = extend_state(cons_state, boundary=boundary)
     left = q_ext[:-1]
     right = q_ext[1:]
     fluxes = riemann_flux_rusanov(left, right, gamma=gamma)
@@ -148,21 +168,32 @@ def advance_one_step(
     dx: float,
     cfl: float,
     gamma: float = 1.4,
+    boundary: str = "outflow",
 ) -> Tuple[np.ndarray, float, float]:
     """Advance the conservative state by one explicit time step."""
     if cfl <= 0.0 or cfl >= 1.0:
         raise ValueError("CFL number should typically lie in (0, 1).")
-    max_speed = _max_characteristic_speed(cons_state, gamma)
+    max_speed = max_wave_speed(cons_state, gamma)
     max_speed = max(max_speed, EPSILON)
     dt = cfl * dx / max_speed
-    next_state = _update_state(cons_state, dx, dt, gamma)
+    next_state = _update_state(cons_state, dx, dt, gamma, boundary=boundary)
     return next_state, dt, max_speed
 
 
-def _prepare_state_array(num_cells: int, left_cons: StateCons, right_cons: StateCons, interface: float, x: np.ndarray) -> np.ndarray:
+def _prepare_state_array(
+    num_cells: int,
+    left_cons: StateCons,
+    right_cons: StateCons,
+    interface: float,
+    x: np.ndarray,
+) -> np.ndarray:
     cons_array = np.zeros((num_cells, 3), dtype=np.float64)
-    left_values = np.array([left_cons.density, left_cons.momentum, left_cons.energy], dtype=np.float64)
-    right_values = np.array([right_cons.density, right_cons.momentum, right_cons.energy], dtype=np.float64)
+    left_values = np.array(
+        [left_cons.density, left_cons.momentum, left_cons.energy], dtype=np.float64
+    )
+    right_values = np.array(
+        [right_cons.density, right_cons.momentum, right_cons.energy], dtype=np.float64
+    )
     mask_left = x <= interface
     cons_array[mask_left] = left_values
     cons_array[~mask_left] = right_values
@@ -179,6 +210,7 @@ def simulate(
     interface_position: float = 0.5,
     store_history: bool = False,
     history_stride: int = 1,
+    boundary: str = "outflow",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[List[SimulationHistoryEntry]]]:
     """Simulate a Riemann problem for the 1-D Euler equations."""
     if final_time <= 0.0:
@@ -205,14 +237,14 @@ def simulate(
 
     step = 0
     while time < final_time:
-        q_cfl, dt_cfl, _ = advance_one_step(q, dx, cfl, gamma=gamma)
+        q_cfl, dt_cfl, _ = advance_one_step(q, dx, cfl, gamma=gamma, boundary=boundary)
         # Adjust the time step to hit final_time exactly.
         dt = dt_cfl
         if time + dt > final_time:
             dt = final_time - time
             if dt <= 0.0:
                 break
-            q = _update_state(q, dx, dt, gamma)
+            q = _update_state(q, dx, dt, gamma, boundary=boundary)
         else:
             q = q_cfl
         time += dt

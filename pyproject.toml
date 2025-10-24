@@ -66,7 +66,7 @@ tests = "pytest"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "--strict-markers --disable-warnings --cov=riemann_ml --cov-report=term-missing"
+addopts = "-q --maxfail=1 --disable-warnings --cov=riemann_ml --cov-report=term-missing"
 testpaths = ["tests"]
 filterwarnings = [
   "error::DeprecationWarning",

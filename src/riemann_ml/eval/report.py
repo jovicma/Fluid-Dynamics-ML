@@ -1,4 +1,4 @@
-"""Unified evaluation and reporting for riemann-ml models."""
+﻿"""Unified evaluation and reporting for riemann-ml models."""
 
 from __future__ import annotations
 
@@ -12,22 +12,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 import torch
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from riemann_ml.core.euler1d import StatePrim
-from riemann_ml.eval.metrics import contact_plateau_error, relative_l2, shock_location_error
+from riemann_ml.eval.metrics import (
+    contact_plateau_error,
+    relative_l2,
+    shock_location_error,
+)
 from riemann_ml.exact.sod_exact import sod_exact_profile
 from riemann_ml.fvm.solver import simulate
 from riemann_ml.ml.fno.dataset import RiemannH5Dataset, _read_metadata
 from riemann_ml.ml.fno.model import FNO1DModel
-from riemann_ml.ml.pinn.model import PINN, conservative_to_primitive as tf_cons_to_prim
+from riemann_ml.ml.pinn.model import PINN
+from riemann_ml.ml.pinn.model import conservative_to_primitive as tf_cons_to_prim
+from riemann_ml.utils.repro import save_config, save_environment, set_global_seeds
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "configs"
 
 
-def _load_config(name: str) -> Dict:
-    cfg = OmegaConf.load(CONFIG_DIR / f"{name}.yaml")
-    return OmegaConf.to_container(cfg, resolve=True)  # type: ignore[return-value]
+def _load_config(name: str) -> DictConfig:
+    return OmegaConf.load(CONFIG_DIR / f"{name}.yaml")
 
 
 def _ensure_dir(path: Path) -> Path:
@@ -64,7 +69,9 @@ def _load_fno(cfg: Dict, checkpoint_path: Path, device: torch.device) -> FNO1DMo
     return model
 
 
-def _pinn_predict(model: PINN, x: np.ndarray, t: float, gamma: float) -> Dict[str, np.ndarray]:
+def _pinn_predict(
+    model: PINN, x: np.ndarray, t: float, gamma: float
+) -> Dict[str, np.ndarray]:
     x_tf = tf.convert_to_tensor(x.reshape(-1, 1), dtype=tf.float32)
     t_tf = tf.convert_to_tensor(np.full_like(x_tf.numpy(), t), dtype=tf.float32)
     preds = model.predict_conservative(x_tf, t_tf, training=False)
@@ -106,7 +113,9 @@ def _fvm_predict(
     }
 
 
-def _fno_predict(model: FNO1DModel, inp: torch.Tensor, device: torch.device) -> Dict[str, np.ndarray]:
+def _fno_predict(
+    model: FNO1DModel, inp: torch.Tensor, device: torch.device
+) -> Dict[str, np.ndarray]:
     inp = inp.unsqueeze(0).to(device)
     with torch.no_grad():
         pred = model(inp).cpu().numpy()[0]
@@ -117,7 +126,9 @@ def _fno_predict(model: FNO1DModel, inp: torch.Tensor, device: torch.device) -> 
     }
 
 
-def initial_profile(metadata, rho_left: float, p_left: float, rho_right: float, p_right: float) -> Dict[str, np.ndarray]:
+def initial_profile(
+    metadata, rho_left: float, p_left: float, rho_right: float, p_right: float
+) -> Dict[str, np.ndarray]:
     mask = metadata.x <= metadata.interface_position
     rho = np.where(mask, rho_left, rho_right).astype(np.float32)
     velocity = np.zeros_like(rho, dtype=np.float32)
@@ -136,17 +147,29 @@ def to_fno_input(initial: Dict[str, np.ndarray], metadata) -> torch.Tensor:
     return torch.from_numpy(arr)
 
 
-def compute_metrics(x: np.ndarray, reference: Dict[str, np.ndarray], prediction: Dict[str, np.ndarray]) -> Dict[str, float]:
+def compute_metrics(
+    x: np.ndarray, reference: Dict[str, np.ndarray], prediction: Dict[str, np.ndarray]
+) -> Dict[str, float]:
     metrics = OrderedDict()
     metrics["relative_l2_rho"] = relative_l2(prediction["rho"], reference["rho"])
     metrics["relative_l2_u"] = relative_l2(prediction["u"], reference["u"])
     metrics["relative_l2_p"] = relative_l2(prediction["p"], reference["p"])
-    metrics["shock_location_error"] = shock_location_error(x, prediction["rho"], reference["rho"])
-    metrics["contact_plateau_error"] = contact_plateau_error(x, prediction["rho"], reference["rho"])
+    metrics["shock_location_error"] = shock_location_error(
+        x, prediction["rho"], reference["rho"]
+    )
+    metrics["contact_plateau_error"] = contact_plateau_error(
+        x, prediction["rho"], reference["rho"]
+    )
     return metrics
 
 
-def plot_comparison(x: np.ndarray, reference: Dict[str, np.ndarray], predictions: Mapping[str, Dict[str, np.ndarray]], title: str, path: Path) -> None:
+def plot_comparison(
+    x: np.ndarray,
+    reference: Dict[str, np.ndarray],
+    predictions: Mapping[str, Dict[str, np.ndarray]],
+    title: str,
+    path: Path,
+) -> None:
     fields = [("rho", "Density"), ("u", "Velocity"), ("p", "Pressure")]
     fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
     for ax, (field_key, field_label) in zip(axes, fields):
@@ -189,9 +212,17 @@ def evaluate_sod(
     )
     reference = {"rho": rho_exact, "u": u_exact, "p": p_exact}
 
-    fvm = _fvm_predict(left_state, right_state, metadata.num_cells, final_time, cfl=cfl, gamma=gamma)
+    fvm = _fvm_predict(
+        left_state, right_state, metadata.num_cells, final_time, cfl=cfl, gamma=gamma
+    )
     pinn = _pinn_predict(pinn_model, x, final_time, gamma=gamma)
-    init_profile = initial_profile(metadata, left_cfg["density"], left_cfg["pressure"], right_cfg["density"], right_cfg["pressure"])
+    init_profile = initial_profile(
+        metadata,
+        left_cfg["density"],
+        left_cfg["pressure"],
+        right_cfg["density"],
+        right_cfg["pressure"],
+    )
     fno_input = to_fno_input(init_profile, metadata)
     device = next(fno_model.parameters()).device
     fno_pred = _fno_predict(fno_model, fno_input, device)
@@ -204,8 +235,16 @@ def evaluate_sod(
         ]
     )
 
-    metrics = {name: compute_metrics(x, reference, pred) for name, pred in predictions.items()}
-    plot_comparison(x, reference, predictions, "Sod shock tube comparison", output_dir / "sod_comparison.png")
+    metrics = {
+        name: compute_metrics(x, reference, pred) for name, pred in predictions.items()
+    }
+    plot_comparison(
+        x,
+        reference,
+        predictions,
+        "Sod shock tube comparison",
+        output_dir / "sod_comparison.png",
+    )
     with (output_dir / "sod_metrics.json").open("w", encoding="utf-8") as fout:
         json.dump(metrics, fout, indent=2)
     return metrics
@@ -221,7 +260,9 @@ def evaluate_random_dataset_samples(
     num_samples: int = 5,
 ) -> List[Dict[str, object]]:
     rng = np.random.default_rng(cfg_pinn["seed"])
-    indices = rng.choice(len(dataset), size=min(num_samples, len(dataset)), replace=False)
+    indices = rng.choice(
+        len(dataset), size=min(num_samples, len(dataset)), replace=False
+    )
     device = next(fno_model.parameters()).device
     final_time = cfg_pinn["domain"]["t_max"]
     gamma = cfg_pinn["gamma"]
@@ -235,7 +276,11 @@ def evaluate_random_dataset_samples(
 
     for sample_id, idx in enumerate(indices):
         inputs, target = dataset[idx]
-        reference = {"rho": target.numpy()[0], "u": target.numpy()[1], "p": target.numpy()[2]}
+        reference = {
+            "rho": target.numpy()[0],
+            "u": target.numpy()[1],
+            "p": target.numpy()[2],
+        }
         x = metadata.x
 
         rho_left = float(rho_left_all[idx])
@@ -245,20 +290,33 @@ def evaluate_random_dataset_samples(
 
         left_state = StatePrim(density=rho_left, velocity=0.0, pressure=p_left)
         right_state = StatePrim(density=rho_right, velocity=0.0, pressure=p_right)
-        fvm_pred = _fvm_predict(left_state, right_state, metadata.num_cells, final_time, cfl=0.5, gamma=gamma)
+        fvm_pred = _fvm_predict(
+            left_state,
+            right_state,
+            metadata.num_cells,
+            final_time,
+            cfl=0.5,
+            gamma=gamma,
+        )
 
         pinn_pred = _pinn_predict(pinn_model, x, final_time, gamma=gamma)
         fno_pred = _fno_predict(fno_model, inputs, device)
 
         predictions = OrderedDict(
             [
-                ("FVM", {"rho": fvm_pred["rho"], "u": fvm_pred["u"], "p": fvm_pred["p"]}),
+                (
+                    "FVM",
+                    {"rho": fvm_pred["rho"], "u": fvm_pred["u"], "p": fvm_pred["p"]},
+                ),
                 ("PINN", pinn_pred),
                 ("FNO", fno_pred),
             ]
         )
 
-        metrics = {name: compute_metrics(x, reference, pred) for name, pred in predictions.items()}
+        metrics = {
+            name: compute_metrics(x, reference, pred)
+            for name, pred in predictions.items()
+        }
         results.append({"index": int(idx), "metrics": metrics})
 
         plot_comparison(
@@ -275,30 +333,59 @@ def evaluate_random_dataset_samples(
 
 
 def main(
-    dataset_path: Path = Path("data/processed/sod_like.h5"),
-    pinn_checkpoint_dir: Path = Path("data/artifacts/pinn/checkpoints"),
+    dataset_path: Optional[Path] = None,
+    pinn_checkpoint_dir: Optional[Path] = None,
     fno_checkpoint_path: Optional[Path] = None,
-    output_dir: Path = Path("data/artifacts/eval"),
+    output_dir: Optional[Path] = None,
     num_random: int = 5,
 ) -> None:
-    cfg_pinn = _load_config("pinn")
-    cfg_fno = _load_config("fno")
+    dataset_path = (
+        Path("data/processed/sod_like.h5")
+        if dataset_path is None
+        else Path(dataset_path)
+    )
+    pinn_checkpoint_dir = (
+        Path("data/artifacts/pinn/checkpoints")
+        if pinn_checkpoint_dir is None
+        else Path(pinn_checkpoint_dir)
+    )
+    output_dir = Path("data/artifacts/eval") if output_dir is None else Path(output_dir)
+    cfg_pinn_conf = _load_config("pinn")
+    cfg_fno_conf = _load_config("fno")
+    cfg_pinn = OmegaConf.to_container(cfg_pinn_conf, resolve=True)
+    cfg_fno = OmegaConf.to_container(cfg_fno_conf, resolve=True)
+
+    set_global_seeds(int(cfg_pinn["seed"]))
 
     metadata = _read_metadata(dataset_path)
     dataset = RiemannH5Dataset(dataset_path)
 
     pinn_model = _load_pinn(cfg_pinn, pinn_checkpoint_dir)
     if fno_checkpoint_path is None:
-        fno_checkpoint_path = _latest_checkpoint(Path(cfg_fno["logging"]["checkpoint_dir"]), "fno_epoch_*.pt")
+        fno_checkpoint_path = _latest_checkpoint(
+            Path(cfg_fno["logging"]["checkpoint_dir"]), "fno_epoch_*.pt"
+        )
     device = torch.device(cfg_fno["training"].get("device", "cpu"))
     fno_model = _load_fno(cfg_fno, fno_checkpoint_path, device)
 
     out_dir = _ensure_dir(output_dir)
+    save_environment(out_dir)
+    combined_cfg = OmegaConf.create({"pinn": cfg_pinn, "fno": cfg_fno})
+    save_config(combined_cfg, out_dir)
+
     sod_dir = _ensure_dir(out_dir / "sod")
     dataset_dir = _ensure_dir(out_dir / "dataset")
 
     evaluate_sod(cfg_pinn, cfg_fno, pinn_model, fno_model, metadata, sod_dir)
-    evaluate_random_dataset_samples(dataset, cfg_pinn, pinn_model, fno_model, metadata, dataset_dir, num_samples=num_random)
+    evaluate_random_dataset_samples(
+        dataset,
+        cfg_pinn,
+        pinn_model,
+        fno_model,
+        metadata,
+        dataset_dir,
+        num_samples=num_random,
+    )
 
 
 if __name__ == "__main__":
