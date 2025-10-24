@@ -34,6 +34,9 @@ dependencies = [
   "torchaudio",
 ]
 
+[project.scripts]
+riemann-ml = "riemann_ml.cli:app"
+
 [project.optional-dependencies]
 dev = [
   "black",

@@ -1,0 +1,14 @@
+﻿fvm:
+  num_cells: 400
+  final_time: 0.2
+  cfl: 0.5
+  gamma: 1.4
+  interface_position: 0.5
+  left_state:
+    density: 1.0
+    velocity: 0.0
+    pressure: 1.0
+  right_state:
+    density: 0.125
+    velocity: 0.0
+    pressure: 0.1

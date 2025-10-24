@@ -48,6 +48,24 @@ scripts/format.sh
 scripts/run_tests.sh
 ```
 
+## CLI
+
+Após preparar o ambiente, instale o pacote em modo editável (ou dentro do ambiente Hatch) para expor o executável `riemann-ml`:
+
+```bash
+pip install -e .                # alternativa geral
+# ou, se estiver usando hatch:
+hatch run pip install -e .
+```
+
+Principais comandos:
+
+- `riemann-ml show-config` — imprime a configuração Hydra usada pelos solvers.
+- `riemann-ml simulate-fvm --output data/artifacts/cli_run/solution.npz` — roda o esquema de volumes finitos e salva os resultados.
+- `riemann-ml plot-sod --output-dir data/artifacts/cli_run/plots` — gera gráficos comparando FVM e solução analítica.
+
+Se preferir evitar a instalação editável, os comandos também funcionam via `python -m riemann_ml.cli ...` dentro do repositório.
+
 ## Estrutura do projeto
 
 ```
@@ -74,7 +92,7 @@ data/
 1. Gere os dados de referência usando os soluidores FVM e exatos.
 2. Treine os modelos PINN/FNO com as configurações definidas em `src/riemann_ml/configs`.
 3. Avalie as previsões com as métricas reunidas em `src/riemann_ml/eval`.
-4. Use a CLI (a ser implementada) para orquestrar experimentos reprodutíveis.
+4. Use a CLI `riemann-ml` (ou `python -m riemann_ml.cli`) para orquestrar experimentos reprodutíveis.
 
 ## Docker
 

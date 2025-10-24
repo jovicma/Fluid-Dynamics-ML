@@ -9,18 +9,35 @@ PLOT_PATH="${OUT_DIR}/profiles.png"
 DATA_PATH="${OUT_DIR}/solution.npz"
 
 mkdir -p "${OUT_DIR}"
-export PYTHONPATH="src${PYTHONPATH:+:${PYTHONPATH}}"
 export N CFL TF OUT_DIR PLOT_PATH DATA_PATH
 
-python - <<'PY'
+PYTHON_BIN="${PYTHON_BIN:-python}"
+if [ -d ".venv" ]; then
+  if [ -x ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
+  elif [ -x ".venv/Scripts/python.exe" ]; then
+    PYTHON_BIN=".venv/Scripts/python.exe"
+  fi
+fi
+
+"${PYTHON_BIN}" - <<'PY'
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
 
-from riemann_ml.core.euler1d import StatePrim
-from riemann_ml.fvm.solver import simulate
-from riemann_ml.utils.plotting import plot_profiles
+import matplotlib.pyplot as plt
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_PATH = PROJECT_ROOT / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
+
+from riemann_ml.core.euler1d import StatePrim  # noqa: E402
+from riemann_ml.fvm.solver import simulate  # noqa: E402
+from riemann_ml.utils.plotting import plot_profiles  # noqa: E402
+from riemann_ml.exact.sod_exact import sod_exact_profile  # noqa: E402
 
 N = int(os.environ["N"])
 CFL = float(os.environ["CFL"])
@@ -58,6 +75,42 @@ plot_profiles(
     savepath=PLOT_PATH,
 )
 
+rho_exact, u_exact, p_exact = sod_exact_profile(
+    x - 0.5,
+    TF,
+    left_state=left_state,
+    right_state=right_state,
+    gamma=GAMMA,
+)
+
+plt.figure(figsize=(10, 9))
+plt.subplot(3, 1, 1)
+plt.plot(x, rho, label="FVM")
+plt.plot(x, rho_exact, "--", label="Exact")
+plt.ylabel("Density")
+plt.legend()
+plt.grid(True)
+
+plt.subplot(3, 1, 2)
+plt.plot(x, velocity, label="FVM")
+plt.plot(x, u_exact, "--", label="Exact")
+plt.ylabel("Velocity")
+plt.legend()
+plt.grid(True)
+
+plt.subplot(3, 1, 3)
+plt.plot(x, pressure, label="FVM")
+plt.plot(x, p_exact, "--", label="Exact")
+plt.ylabel("Pressure")
+plt.xlabel("x")
+plt.legend()
+plt.grid(True)
+
+comparison_path = OUT_DIR / "fvm_vs_exact.png"
+plt.tight_layout()
+plt.savefig(comparison_path, dpi=150)
+plt.close()
+
 np.savez(
     DATA_PATH,
     times=times,
@@ -67,5 +120,6 @@ np.savez(
 )
 
 print(f"[run_fvm_sod] Saved figure to {PLOT_PATH}")
+print(f"[run_fvm_sod] Saved comparison plot to {comparison_path}")
 print(f"[run_fvm_sod] Saved solution data to {DATA_PATH}")
 PY
