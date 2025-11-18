@@ -1,0 +1,35 @@
+seed: 1234
+gamma: 1.4
+domain:
+  x_min: 0.0
+  x_max: 1.0
+  t_min: 0.0
+  t_max: 0.2
+sod:
+  interface: 0.5
+  left:
+    density: 1.0
+    velocity: 0.0
+    pressure: 1.0
+  right:
+    density: 0.125
+    velocity: 0.0
+    pressure: 0.1
+model:
+  hidden_layers: 8
+  hidden_size: 32
+training:
+  n_pde: 8192
+  n_ic: 2048
+  n_bc: 2048
+  learning_rate: 0.001
+  max_steps: 2000
+  log_interval: 50
+  eval_interval: 1000
+  checkpoint_interval: 1000
+logging:
+  log_dir: data/artifacts/pinn/logs
+  checkpoint_dir: data/artifacts/pinn/checkpoints
+  output_dir: data/artifacts/pinn/outputs
+evaluation:
+  n_points: 512
